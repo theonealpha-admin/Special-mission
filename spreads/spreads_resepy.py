@@ -4,6 +4,7 @@ from statsmodels.regression.rolling import RollingOLS
 import statsmodels.api as sm
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
 LOOKBACK = int(os.getenv('LOOKBACK_DAYS'))
 
@@ -23,14 +24,27 @@ def calculate_hedge_ratios(df, pair):
     # Align both series
     close1, close2 = close1.align(close2, join='inner')
     
-    log1 = np.log(close1)
-    log2 = sm.add_constant(np.log(close2))
+    # Check aligned length
+    if len(close1) < LOOKBACK:
+        print(f"Skipping {pair}, not enough aligned data ({len(close1)} < {LOOKBACK})")
+        return pd.Series()
     
-    model = RollingOLS(log1, log2, LOOKBACK)
+    log1 = np.log(close1)
+    log2 = np.log(close2)
+    
+    log2_with_const = sm.add_constant(log2)
+    
+    log1 = log1.reset_index(drop=True)
+    log2_with_const = log2_with_const.reset_index(drop=True)
+    
+    model = RollingOLS(log1, log2_with_const, window=LOOKBACK)
     results = model.fit()
     
-    return results.params.iloc[:, 1]
-
+    hedge_ratios = results.params.iloc[:, 1]
+    
+    hedge_ratios.index = close1.index
+    
+    return hedge_ratios
 
 
 

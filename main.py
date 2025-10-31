@@ -7,6 +7,7 @@ import psutil
 from multiprocessing import Process
 import pandas as pd, io
 from data.auth import auth_run
+from data.crypto import crypto_historical_data, crypto_websocket_connect
 from data.data import get_historical_data, websocket
 import os
 from dotenv import load_dotenv
@@ -27,7 +28,7 @@ symbols = pd.read_csv("pair.csv")['pair'].str.split('_').explode().unique().toli
 num = int(re.findall(r'\d+', hist_intv)[0])
 aggregator = CandleAggregator(interval_minutes=num)
 
-def download_histD(symbols):
+def download_histD(symbols, exchange):
     print("Data Downloader")
     for sym in symbols:
         df = read_feather_from_redis(redis_conn, sym, key="historical", lr=True)
@@ -36,29 +37,29 @@ def download_histD(symbols):
         else:
             start = datetime.strptime(data_startD, "%Y-%m-%d %H:%M")
         final_end = datetime.now()
-        # print("start ", start, "final_end", final_end, for symbol {sym})
-        data = get_historical_data(sym, start, final_end, interval=hist_intv)
-        # print("data", data)
+        if exchange == "nse":
+            data = get_historical_data(sym, start, final_end, interval=hist_intv)
+        else:
+            data = crypto_historical_data(sym, start, final_end, interval=hist_intv)
+            # print("data", data)
         write_feather_to_redis(redis_conn, sym, data, key="historical", live=False, spreads=True)
     print("Data Downloader Complete")
 
 def on_tick(symbol, tick):
     aggregator.process_tick(symbol, tick)
 
-def run_ws(symbols):
+def run_ws(symbols, exchange):
     if isinstance(symbols, str):
         symbols = [symbols]
-    ws_thread = threading.Thread(
-        target=websocket, 
-        args=(symbols,), 
-        kwargs={'tick_callback': on_tick},
-        daemon=True, 
-        name="WebSocket"
-    )
-    ws_thread.start()
+    if exchange == "nse":
+        ws_thread = threading.Thread(target=websocket,args=(symbols,),kwargs={'tick_callback': on_tick},daemon=True,name="WebSocket")
+        ws_thread.start()
+    else:
+        ws_thread = threading.Thread(target=crypto_websocket_connect,args=(symbols,),kwargs={'tick_callback': on_tick},daemon=True,name="WebSocket")
+        ws_thread.start()
 
-    live_Spreads = threading.Thread(target=live_Spreads_loop, daemon=True, name="LiveSpreads")
-    live_Spreads.start()
+    # live_Spreads = threading.Thread(target=live_Spreads_loop, daemon=True, name="LiveSpreads")
+    # live_Spreads.start()
     
     interval_minutes = int(''.join(filter(str.isdigit, os.getenv("hist_intv", "5"))))
     while True:
@@ -98,9 +99,9 @@ def live_loop():
 
 if __name__ == "__main__":
     # auth_run()
-    download_histD(symbols)
+    download_histD(symbols,"crypto")
     calculate_historical(loop=False)
-    p1 = mp.Process(target=run_ws, args=(symbols,))
+    p1 = mp.Process(target=run_ws, args=(symbols,"crypto",))
     # p2 = mp.Process(target=aqi_write)
     p3 = mp.Process(target=live_loop)
     p1.start()

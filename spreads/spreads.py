@@ -60,7 +60,7 @@ def process_historical(pair, loop):
     df = get_data(pair, from_date)
     spreads = calculate_historical_spreads(df, pair)
     if not spreads.empty:
-        print("spreads", spreads)
+        # print("spreads", spreads)
         save_df(pair, spreads)
 
 # def calculate_historical(loop):
